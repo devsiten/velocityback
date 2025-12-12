@@ -181,8 +181,8 @@ trade.post('/swap', authMiddleware, strictRateLimiter(), async (c) => {
       body.outputSymbol || 'Unknown',
       body.quoteResponse.inAmount,
       body.quoteResponse.outAmount,
-      body.quoteResponse.priceImpactPct,
-      body.quoteResponse.platformFee
+      body.quoteResponse.priceImpactPct || '0',
+      body.quoteResponse.platformFee?.amount || '0'
     ).run();
 
     return c.json({
