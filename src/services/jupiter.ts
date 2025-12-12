@@ -42,9 +42,11 @@ export class JupiterService {
       inAmount: quote.inAmount,
       outAmount: quote.outAmount,
       priceImpactPct: quote.priceImpactPct,
-      platformFee: quote.platformFee?.amount || '0',
+      platformFee: quote.platformFee || null,
       routePlan: quote.routePlan || [],
       contextSlot: quote.contextSlot,
+      // Pass through the full quote for swap
+      ...quote,
     };
   }
 

@@ -24,7 +24,12 @@ trade.get('/tokens/search', quoteLimiter(), async (c) => {
 // GET /trending - Fetch trending tokens from Jupiter
 trade.get('/trending', quoteLimiter(), async (c) => {
   try {
-    const response = await fetch('https://api.jup.ag/tokens/v1/trending');
+    const headers: Record<string, string> = { 'Accept': 'application/json' };
+    if (c.env.JUPITER_API_KEY) {
+      headers['x-api-key'] = c.env.JUPITER_API_KEY;
+    }
+
+    const response = await fetch('https://api.jup.ag/tokens/v1/trending', { headers });
 
     if (!response.ok) {
       // Fallback to strict token list if trending fails
@@ -72,6 +77,7 @@ trade.get('/trending', quoteLimiter(), async (c) => {
 
     return c.json({ success: true, data: formatted });
   } catch (error) {
+    console.error('Trending error:', error);
     return c.json({ success: false, error: 'Trending fetch failed', code: 'TRENDING_ERROR' }, 500);
   }
 });
