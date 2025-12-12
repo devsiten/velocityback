@@ -5,6 +5,7 @@ const ALLOWED_ORIGINS = [
   'http://localhost:3000',
   'https://velocity.trade',
   'https://app.velocity.trade',
+  'https://velocity-dxg.pages.dev',
 ];
 
 export async function corsMiddleware(c: Context, next: Next) {
