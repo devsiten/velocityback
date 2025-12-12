@@ -235,7 +235,7 @@ export class JupiterService {
     };
 
     if (this.env.JUPITER_API_KEY) {
-      headers['Authorization'] = `Bearer ${this.env.JUPITER_API_KEY}`;
+      headers['x-api-key'] = this.env.JUPITER_API_KEY;
     }
 
     return headers;
