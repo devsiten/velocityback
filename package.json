@@ -1,0 +1,22 @@
+{
+  "name": "@velocity/backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "db:migrate": "wrangler d1 execute velocity-db --file=./migrations/0001_init.sql",
+    "db:migrate:local": "wrangler d1 execute velocity-db --local --file=./migrations/0001_init.sql"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.91.1",
+    "hono": "^4.1.0",
+    "bs58": "^5.0.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240208.0",
+    "typescript": "^5.3.3",
+    "wrangler": "^3.28.2"
+  }
+}
