@@ -21,59 +21,44 @@ trade.get('/tokens/search', quoteLimiter(), async (c) => {
   return c.json({ success: true, data: tokens });
 });
 
-// GET /trending - Fetch trending tokens from Jupiter
+// GET /trending - Fetch trending/popular tokens
 trade.get('/trending', quoteLimiter(), async (c) => {
   try {
-    const headers: Record<string, string> = { 'Accept': 'application/json' };
-    if (c.env.JUPITER_API_KEY) {
-      headers['x-api-key'] = c.env.JUPITER_API_KEY;
-    }
-
-    const response = await fetch('https://api.jup.ag/tokens/v1/trending', { headers });
+    // Use token.jup.ag/strict which is more reliable from Cloudflare Workers
+    const response = await fetch('https://token.jup.ag/strict');
 
     if (!response.ok) {
-      // Fallback to strict token list if trending fails
-      const fallbackRes = await fetch('https://token.jup.ag/strict');
-      const allTokens = await fallbackRes.json();
-
-      const popularMints = [
-        'So11111111111111111111111111111111111111112',
-        'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
-        'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
-        'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
-        'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So',
-        'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn',
-        'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
-        'RLBxxFkseAZ4RgJH3Sqn8jXxhmGoz9jWxDNJMh8pL7a',
-      ];
-
-      const formatted = popularMints.map((mint, index) => {
-        const token = allTokens.find((t: any) => t.address === mint);
-        return {
-          rank: index + 1,
-          address: mint,
-          symbol: token?.symbol || 'UNKNOWN',
-          name: token?.name || 'Unknown',
-          logoURI: token?.logoURI || '',
-          decimals: token?.decimals || 9,
-          dailyVolume: 0,
-        };
-      });
-
-      return c.json({ success: true, data: formatted });
+      throw new Error('Token list fetch failed');
     }
 
-    const tokens = await response.json();
+    const allTokens = await response.json() as any[];
 
-    const formatted = tokens.slice(0, 10).map((token: any, index: number) => ({
-      rank: index + 1,
-      address: token.address,
-      symbol: token.symbol,
-      name: token.name,
-      logoURI: token.logoURI,
-      decimals: token.decimals || 9,
-      dailyVolume: token.dailyVolume || 0,
-    }));
+    // Popular/trending token addresses
+    const popularMints = [
+      'So11111111111111111111111111111111111111112',  // SOL
+      'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
+      'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',  // JUP
+      'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // BONK
+      'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So',  // mSOL
+      'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', // jitoSOL
+      'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
+      'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3', // PYTH
+      'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm', // WIF
+      '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs', // ETH (Wormhole)
+    ];
+
+    const formatted = popularMints.map((mint, index) => {
+      const token = allTokens.find((t: any) => t.address === mint);
+      return {
+        rank: index + 1,
+        address: mint,
+        symbol: token?.symbol || 'UNKNOWN',
+        name: token?.name || 'Unknown',
+        logoURI: token?.logoURI || '',
+        decimals: token?.decimals || 9,
+        dailyVolume: 0,
+      };
+    }).filter(t => t.symbol !== 'UNKNOWN'); // Only include found tokens
 
     return c.json({ success: true, data: formatted });
   } catch (error) {
