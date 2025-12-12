@@ -11,13 +11,12 @@ PRICE_POLL_INTERVAL_MS = "2000"
 
 [[kv_namespaces]]
 binding = "CACHE"
-id = "your-kv-namespace-id"
-preview_id = "your-preview-kv-namespace-id"
+id = "82ebaee9f947487f8fcf682acd3e1274"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "velocity-db"
-database_id = "your-d1-database-id"
+database_id = "dac9be73-8a07-4964-bd12-5a9f4cbf8928"
 
 [env.production]
 vars = { ENVIRONMENT = "production" }
