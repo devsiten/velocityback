@@ -6,7 +6,7 @@ const PRICE_CACHE_TTL = 2000;
 
 export class JupiterService {
   private env: Env;
-  
+
   constructor(env: Env) {
     this.env = env;
   }
@@ -35,7 +35,7 @@ export class JupiterService {
     }
 
     const quote = await response.json() as any;
-    
+
     return {
       inputMint: quote.inputMint,
       outputMint: quote.outputMint,
@@ -50,10 +50,10 @@ export class JupiterService {
 
   async buildSwapTransaction(request: SwapRequest): Promise<SwapResponse> {
     const maxSlippage = parseInt(this.env.MAX_SLIPPAGE_BPS) || 1000;
-    const quoteSlippage = request.quoteResponse.routePlan?.[0]?.swapInfo 
-      ? parseInt(request.quoteResponse.priceImpactPct) * 100 
+    const quoteSlippage = request.quoteResponse.routePlan?.[0]?.swapInfo
+      ? parseInt(request.quoteResponse.priceImpactPct) * 100
       : 100;
-    
+
     if (quoteSlippage > maxSlippage) {
       throw new Error(`Slippage too high: ${quoteSlippage / 100}%`);
     }
@@ -83,7 +83,7 @@ export class JupiterService {
     }
 
     const swap = await response.json() as any;
-    
+
     return {
       swapTransaction: swap.swapTransaction,
       lastValidBlockHeight: swap.lastValidBlockHeight,
@@ -94,7 +94,7 @@ export class JupiterService {
   async getPrice(mint: string): Promise<number> {
     const cacheKey = `price:${mint}`;
     const cached = await this.env.CACHE.get(cacheKey, 'json') as CachedPrice | null;
-    
+
     if (cached && Date.now() - cached.timestamp < PRICE_CACHE_TTL) {
       return cached.price;
     }
@@ -166,7 +166,7 @@ export class JupiterService {
   async searchTokens(query: string): Promise<any[]> {
     const cacheKey = `tokens:search:${query.toLowerCase()}`;
     const cached = await this.env.CACHE.get(cacheKey, 'json') as any[] | null;
-    
+
     if (cached) return cached;
 
     const response = await fetch(
@@ -189,24 +189,42 @@ export class JupiterService {
   async getTokenInfo(mint: string): Promise<any | null> {
     const cacheKey = `token:${mint}`;
     const cached = await this.env.CACHE.get(cacheKey, 'json');
-    
+
     if (cached) return cached;
 
-    const response = await fetch(
+    // Try the strict list first (verified tokens)
+    let response = await fetch(
       `https://token.jup.ag/strict?address=${mint}`,
       { headers: this.getHeaders() }
     );
 
-    if (!response.ok) return null;
+    let tokens = response.ok ? await response.json() as any[] : [];
+    let token = tokens[0] || null;
 
-    const tokens = await response.json() as any[];
-    const token = tokens[0] || null;
-
-    if (token) {
-      await this.env.CACHE.put(cacheKey, JSON.stringify(token), {
-        expirationTtl: 3600,
-      });
+    // If not found in strict, try the all tokens list
+    if (!token) {
+      response = await fetch(
+        `https://token.jup.ag/all?address=${mint}`,
+        { headers: this.getHeaders() }
+      );
+      tokens = response.ok ? await response.json() as any[] : [];
+      token = tokens[0] || null;
     }
+
+    // If still not found, create a basic token object from mint
+    if (!token) {
+      token = {
+        address: mint,
+        symbol: mint.slice(0, 6),
+        name: `Token ${mint.slice(0, 8)}...`,
+        decimals: 9,
+        logoURI: null,
+      };
+    }
+
+    await this.env.CACHE.put(cacheKey, JSON.stringify(token), {
+      expirationTtl: 3600,
+    });
 
     return token;
   }
@@ -215,11 +233,11 @@ export class JupiterService {
     const headers: Record<string, string> = {
       'Accept': 'application/json',
     };
-    
+
     if (this.env.JUPITER_API_KEY) {
       headers['Authorization'] = `Bearer ${this.env.JUPITER_API_KEY}`;
     }
-    
+
     return headers;
   }
 }
