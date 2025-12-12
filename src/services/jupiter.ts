@@ -1,7 +1,7 @@
 import { Env, CachedPrice } from '../types/env';
 import { QuoteRequest, QuoteResponse, SwapRequest, SwapResponse, SOL_MINT } from '../types/shared';
 
-const JUPITER_API_BASE = 'https://quote-api.jup.ag/v6';
+const JUPITER_API_BASE = 'https://api.jup.ag/swap/v1';
 const PRICE_CACHE_TTL = 2000;
 
 export class JupiterService {
