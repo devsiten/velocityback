@@ -1,7 +1,8 @@
 import { Env, CachedPrice } from '../types/env';
 import { QuoteRequest, QuoteResponse, SwapRequest, SwapResponse, SOL_MINT } from '../types/shared';
 
-const JUPITER_API_BASE = 'https://quote-api.jup.ag/v6';
+// FIXED: Jupiter consolidated APIs under api.jup.ag (December 2025)
+const JUPITER_API_BASE = 'https://api.jup.ag/quote/v6';
 const PRICE_CACHE_TTL = 2000;
 
 export class JupiterService {
@@ -22,7 +23,6 @@ export class JupiterService {
       amount: request.amount,
       slippageBps: request.slippageBps.toString(),
       platformFeeBps: totalFeeBps.toString(),
-      feeAccount: this.env.FEE_WALLET_ADDRESS,
     });
 
     const response = await fetch(`${JUPITER_API_BASE}/quote?${params}`, {
