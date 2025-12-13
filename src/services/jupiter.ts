@@ -171,15 +171,22 @@ export class JupiterService {
 
     if (cached) return cached;
 
+    // Use lite-api (no API key needed until Dec 2025)
     const response = await fetch(
-      `https://token.jup.ag/strict?search=${encodeURIComponent(query)}`,
+      `https://lite-api.jup.ag/tokens/v2/search?query=${encodeURIComponent(query)}`,
       { headers: this.getHeaders() }
     );
 
     if (!response.ok) return [];
 
     const tokens = await response.json() as any[];
-    const filtered = tokens.slice(0, 20);
+    const filtered = tokens.slice(0, 20).map((t: any) => ({
+      address: t.id || t.address,
+      symbol: t.symbol,
+      name: t.name,
+      decimals: t.decimals,
+      logoURI: t.icon || t.logoURI
+    }));
 
     await this.env.CACHE.put(cacheKey, JSON.stringify(filtered), {
       expirationTtl: 300,
@@ -194,26 +201,28 @@ export class JupiterService {
 
     if (cached) return cached;
 
-    // Try the strict list first (verified tokens)
-    let response = await fetch(
-      `https://token.jup.ag/strict?address=${mint}`,
+    // Use lite-api search with mint address as query
+    const response = await fetch(
+      `https://lite-api.jup.ag/tokens/v2/search?query=${mint}`,
       { headers: this.getHeaders() }
     );
 
-    let tokens = response.ok ? await response.json() as any[] : [];
-    let token = tokens[0] || null;
-
-    // If not found in strict, try the all tokens list
-    if (!token) {
-      response = await fetch(
-        `https://token.jup.ag/all?address=${mint}`,
-        { headers: this.getHeaders() }
-      );
-      tokens = response.ok ? await response.json() as any[] : [];
-      token = tokens[0] || null;
+    let token = null;
+    if (response.ok) {
+      const tokens = await response.json() as any[];
+      const found = tokens.find((t: any) => (t.id || t.address) === mint);
+      if (found) {
+        token = {
+          address: found.id || found.address,
+          symbol: found.symbol,
+          name: found.name,
+          decimals: found.decimals,
+          logoURI: found.icon || found.logoURI
+        };
+      }
     }
 
-    // If still not found, create a basic token object from mint
+    // If not found, create a basic token object from mint
     if (!token) {
       token = {
         address: mint,

@@ -24,41 +24,24 @@ trade.get('/tokens/search', quoteLimiter(), async (c) => {
 // GET /trending - Fetch trending/popular tokens
 trade.get('/trending', quoteLimiter(), async (c) => {
   try {
-    // Use token.jup.ag/strict which is more reliable from Cloudflare Workers
-    const response = await fetch('https://token.jup.ag/strict');
+    // Use lite-api (works without API key until Dec 31, 2025)
+    const response = await fetch('https://lite-api.jup.ag/tokens/v2/toptrending/24h?limit=20');
 
     if (!response.ok) {
-      throw new Error('Token list fetch failed');
+      throw new Error(`Token list fetch failed: ${response.status}`);
     }
 
-    const allTokens = await response.json() as any[];
+    const trendingTokens = await response.json() as any[];
 
-    // Popular/trending token addresses
-    const popularMints = [
-      'So11111111111111111111111111111111111111112',  // SOL
-      'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', // USDC
-      'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',  // JUP
-      'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263', // BONK
-      'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So',  // mSOL
-      'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn', // jitoSOL
-      'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', // USDT
-      'HZ1JovNiVvGrGNiiYvEozEVgZ58xaU3RKwX8eACQBCt3', // PYTH
-      'EKpQGSJtjMFqKZ9KQanSqYXRcF8fBopzLHYxdM65zcjm', // WIF
-      '7vfCXTUXx5WJV5JADk17DUJ4ksgau7utNKj4b963voxs', // ETH (Wormhole)
-    ];
-
-    const formatted = popularMints.map((mint, index) => {
-      const token = allTokens.find((t: any) => t.address === mint);
-      return {
-        rank: index + 1,
-        address: mint,
-        symbol: token?.symbol || 'UNKNOWN',
-        name: token?.name || 'Unknown',
-        logoURI: token?.logoURI || '',
-        decimals: token?.decimals || 9,
-        dailyVolume: 0,
-      };
-    }).filter(t => t.symbol !== 'UNKNOWN'); // Only include found tokens
+    const formatted = trendingTokens.map((token: any, index: number) => ({
+      rank: index + 1,
+      address: token.id || token.address,
+      symbol: token.symbol || 'UNKNOWN',
+      name: token.name || 'Unknown',
+      logoURI: token.icon || token.logoURI || '',
+      decimals: token.decimals || 9,
+      dailyVolume: (token.stats24h?.buyVolume || 0) + (token.stats24h?.sellVolume || 0)
+    }));
 
     return c.json({ success: true, data: formatted });
   } catch (error) {
