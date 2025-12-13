@@ -1,8 +1,8 @@
 import { Env, CachedPrice } from '../types/env';
 import { QuoteRequest, QuoteResponse, SwapRequest, SwapResponse, SOL_MINT } from '../types/shared';
 
-// FIXED: Jupiter consolidated APIs under api.jup.ag (December 2025)
-const JUPITER_API_BASE = 'https://api.jup.ag/quote/v6';
+// Jupiter Ultra API (December 2025)
+const JUPITER_API_BASE = 'https://api.jup.ag/ultra';
 const PRICE_CACHE_TTL = 2000;
 
 export class JupiterService {
