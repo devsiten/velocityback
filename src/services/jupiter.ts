@@ -1,9 +1,9 @@
 import { Env } from '../types/env';
 import { SOL_MINT } from '../types/shared';
 
-// Updated API endpoints
+// Updated API endpoints (December 2025)
 const JUPITER_SWAP_API = "https://api.jup.ag/swap/v1";
-const JUPITER_PRICE_API = "https://api.jup.ag/price/v2";
+const JUPITER_PRICE_API = "https://api.jup.ag/price/v3";
 const JUPITER_TOKEN_API = "https://lite-api.jup.ag/tokens/v2";
 
 const PRICE_CACHE_TTL = 2000; // 2 seconds
@@ -176,7 +176,7 @@ export class JupiterService {
     };
   }
 
-  // Get USD prices using the new Price API V2
+  // Get USD prices using the Price API V3 (December 2025)
   async getUsdPrices(mints: string[]): Promise<Record<string, number>> {
     const prices: Record<string, number> = {};
 
@@ -184,8 +184,7 @@ export class JupiterService {
 
     try {
       const params = new URLSearchParams({
-        ids: mints.join(','),
-        showExtraInfo: 'false'
+        ids: mints.join(',')
       });
 
       const response = await fetch(`${JUPITER_PRICE_API}?${params}`, {
@@ -199,8 +198,12 @@ export class JupiterService {
 
       const data = await response.json() as any;
 
+      // V3 format: data.data[mint].usdPrice
       for (const mint of mints) {
-        if (data.data?.[mint]?.price) {
+        if (data.data?.[mint]?.usdPrice) {
+          prices[mint] = parseFloat(data.data[mint].usdPrice);
+        } else if (data.data?.[mint]?.price) {
+          // Fallback to price field for backward compatibility
           prices[mint] = parseFloat(data.data[mint].price);
         }
       }
