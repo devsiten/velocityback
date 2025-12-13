@@ -108,24 +108,19 @@ trade.post('/prices', quoteLimiter(), async (c) => {
   const jupiter = new JupiterService(c.env);
 
   try {
-    const [pricesInSol, pricesUsd] = await Promise.all([
-      jupiter.getPrices(body.mints),
-      jupiter.getUsdPrices(body.mints)
-    ]);
+    // Get USD prices
+    const pricesUsd = await jupiter.getUsdPrices(body.mints);
 
-    // Combine both price types
-    const combinedPrices: Record<string, { sol: number; usd: number }> = {};
+    // Return USD prices as simple numbers (frontend expects this format)
+    const prices: Record<string, number> = {};
     for (const mint of body.mints) {
-      combinedPrices[mint] = {
-        sol: pricesInSol[mint] || 0,
-        usd: pricesUsd[mint] || 0
-      };
+      prices[mint] = pricesUsd[mint] || 0;
     }
 
     return c.json({
       success: true,
       data: {
-        prices: combinedPrices,
+        prices: prices,
         timestamp: Date.now()
       }
     });
