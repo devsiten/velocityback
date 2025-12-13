@@ -1,13 +1,14 @@
 import { Hono } from 'hono';
-import { Env } from '../types/env';
 import { JupiterService } from '../services/jupiter';
 import { PointsService } from '../services/points';
 import { authMiddleware } from '../middleware/auth';
-import { quoteLimiter, strictRateLimiter } from '../middleware/rateLimit';
-import { validateQuoteRequest, validateMint, sanitizeString } from '../utils/validation';
+import { strictRateLimiter, quoteLimiter } from '../middleware/rateLimit';
+import { validateMint, validateQuoteRequest, sanitizeString } from '../utils/validation';
+import { Env } from '../types/env';
 
 const trade = new Hono<{ Bindings: Env; Variables: { userId: string; publicKey: string } }>();
 
+// Search tokens
 trade.get('/tokens/search', quoteLimiter(), async (c) => {
   const query = c.req.query('q');
 
@@ -21,26 +22,20 @@ trade.get('/tokens/search', quoteLimiter(), async (c) => {
   return c.json({ success: true, data: tokens });
 });
 
-// GET /trending - Fetch trending/popular tokens
+// Get trending tokens - FIXED
 trade.get('/trending', quoteLimiter(), async (c) => {
   try {
-    // Use lite-api (works without API key until Dec 31, 2025)
-    const response = await fetch('https://lite-api.jup.ag/tokens/v2/toptrending/24h?limit=20');
+    const jupiter = new JupiterService(c.env);
+    const trendingTokens = await jupiter.getTrendingTokens(20);
 
-    if (!response.ok) {
-      throw new Error(`Token list fetch failed: ${response.status}`);
-    }
-
-    const trendingTokens = await response.json() as any[];
-
-    const formatted = trendingTokens.map((token: any, index: number) => ({
+    const formatted = trendingTokens.map((token, index) => ({
       rank: index + 1,
-      address: token.id || token.address,
-      symbol: token.symbol || 'UNKNOWN',
-      name: token.name || 'Unknown',
-      logoURI: token.icon || token.logoURI || '',
-      decimals: token.decimals || 9,
-      dailyVolume: (token.stats24h?.buyVolume || 0) + (token.stats24h?.sellVolume || 0)
+      address: token.address,
+      symbol: token.symbol,
+      name: token.name,
+      logoURI: token.logoURI || '',
+      decimals: token.decimals,
+      dailyVolume: token.dailyVolume || 0
     }));
 
     return c.json({ success: true, data: formatted });
@@ -50,6 +45,7 @@ trade.get('/trending', quoteLimiter(), async (c) => {
   }
 });
 
+// Get token info by mint
 trade.get('/tokens/:mint', quoteLimiter(), async (c) => {
   const mint = c.req.param('mint');
 
@@ -67,6 +63,7 @@ trade.get('/tokens/:mint', quoteLimiter(), async (c) => {
   return c.json({ success: true, data: token });
 });
 
+// Get price for a token (in SOL)
 trade.get('/price/:mint', quoteLimiter(), async (c) => {
   const mint = c.req.param('mint');
 
@@ -75,13 +72,28 @@ trade.get('/price/:mint', quoteLimiter(), async (c) => {
   }
 
   const jupiter = new JupiterService(c.env);
-  const price = await jupiter.getPrice(mint);
 
-  return c.json({ success: true, data: { mint, price, timestamp: Date.now() } });
+  try {
+    const priceInSol = await jupiter.getPrice(mint);
+    const usdPrices = await jupiter.getUsdPrices([mint]);
+
+    return c.json({
+      success: true,
+      data: {
+        mint,
+        price: priceInSol,
+        priceUsd: usdPrices[mint] || null,
+        timestamp: Date.now()
+      }
+    });
+  } catch (error) {
+    return c.json({ success: false, error: 'Price fetch failed', code: 'PRICE_ERROR' }, 500);
+  }
 });
 
+// Get multiple prices - FIXED with USD prices
 trade.post('/prices', quoteLimiter(), async (c) => {
-  const body = await c.req.json<{ mints: string[] }>();
+  const body = await c.req.json();
 
   if (!Array.isArray(body.mints) || body.mints.length === 0 || body.mints.length > 20) {
     return c.json({ success: false, error: 'Provide 1-20 mint addresses', code: 'INVALID_MINTS' }, 400);
@@ -94,11 +106,35 @@ trade.post('/prices', quoteLimiter(), async (c) => {
   }
 
   const jupiter = new JupiterService(c.env);
-  const prices = await jupiter.getPrices(body.mints);
 
-  return c.json({ success: true, data: { prices, timestamp: Date.now() } });
+  try {
+    const [pricesInSol, pricesUsd] = await Promise.all([
+      jupiter.getPrices(body.mints),
+      jupiter.getUsdPrices(body.mints)
+    ]);
+
+    // Combine both price types
+    const combinedPrices: Record<string, { sol: number; usd: number }> = {};
+    for (const mint of body.mints) {
+      combinedPrices[mint] = {
+        sol: pricesInSol[mint] || 0,
+        usd: pricesUsd[mint] || 0
+      };
+    }
+
+    return c.json({
+      success: true,
+      data: {
+        prices: combinedPrices,
+        timestamp: Date.now()
+      }
+    });
+  } catch (error) {
+    return c.json({ success: false, error: 'Prices fetch failed', code: 'PRICE_ERROR' }, 500);
+  }
 });
 
+// Get quote - FIXED with USD amounts
 trade.post('/quote', quoteLimiter(), async (c) => {
   const body = await c.req.json();
   const maxSlippage = parseInt(c.env.MAX_SLIPPAGE_BPS) || 1000;
@@ -112,13 +148,23 @@ trade.post('/quote', quoteLimiter(), async (c) => {
 
   try {
     const quote = await jupiter.getQuote(body);
-    return c.json({ success: true, data: quote });
+
+    return c.json({
+      success: true,
+      data: {
+        ...quote,
+        // Ensure USD amounts are included
+        inAmountUsd: quote.inAmountUsd || null,
+        outAmountUsd: quote.outAmountUsd || null
+      }
+    });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Quote failed';
     return c.json({ success: false, error: message, code: 'QUOTE_ERROR' }, 500);
   }
 });
 
+// Build swap transaction
 trade.post('/swap', authMiddleware, strictRateLimiter(), async (c) => {
   const body = await c.req.json();
   const userId = c.get('userId');
@@ -157,7 +203,7 @@ trade.post('/swap', authMiddleware, strictRateLimiter(), async (c) => {
       success: true,
       data: {
         ...swap,
-        tradeId,
+        tradeId
       }
     });
   } catch (error) {
@@ -166,19 +212,20 @@ trade.post('/swap', authMiddleware, strictRateLimiter(), async (c) => {
   }
 });
 
+// Confirm trade
 trade.post('/confirm', authMiddleware, strictRateLimiter(), async (c) => {
-  const body = await c.req.json<{ tradeId: string; txSignature: string }>();
+  const body = await c.req.json();
   const userId = c.get('userId');
 
   if (!body.tradeId || !body.txSignature) {
     return c.json({ success: false, error: 'Missing trade ID or signature', code: 'INVALID_REQUEST' }, 400);
   }
 
-  const trade = await c.env.DB.prepare(`
+  const tradeRecord = await c.env.DB.prepare(`
     SELECT * FROM trades WHERE id = ? AND user_id = ? AND status = 'pending'
-  `).bind(body.tradeId, userId).first<any>();
+  `).bind(body.tradeId, userId).first();
 
-  if (!trade) {
+  if (!tradeRecord) {
     return c.json({ success: false, error: 'Trade not found', code: 'NOT_FOUND' }, 404);
   }
 
@@ -186,7 +233,20 @@ trade.post('/confirm', authMiddleware, strictRateLimiter(), async (c) => {
     UPDATE trades SET status = 'confirmed', tx_signature = ? WHERE id = ?
   `).bind(body.txSignature, body.tradeId).run();
 
-  const volumeUsd = parseFloat(trade.in_amount) / 1e9 * 150;
+  // Calculate volume in USD (approximate)
+  const jupiter = new JupiterService(c.env);
+  let volumeUsd = 0;
+
+  try {
+    const prices = await jupiter.getUsdPrices([tradeRecord.input_mint as string]);
+    const tokenInfo = await jupiter.getTokenInfo(tradeRecord.input_mint as string);
+    const decimals = tokenInfo?.decimals || 9;
+    volumeUsd = (parseFloat(tradeRecord.in_amount as string) / Math.pow(10, decimals)) * (prices[tradeRecord.input_mint as string] || 0);
+  } catch (e) {
+    // Fallback estimation
+    volumeUsd = parseFloat(tradeRecord.in_amount as string) / 1e9 * 150;
+  }
+
   const points = new PointsService(c.env);
   const earnedPoints = await points.awardTradePoints(userId, volumeUsd);
 
@@ -195,10 +255,12 @@ trade.post('/confirm', authMiddleware, strictRateLimiter(), async (c) => {
     data: {
       confirmed: true,
       pointsEarned: earnedPoints,
+      volumeUsd
     }
   });
 });
 
+// Get trade history
 trade.get('/history', authMiddleware, async (c) => {
   const userId = c.get('userId');
   const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
@@ -206,7 +268,7 @@ trade.get('/history', authMiddleware, async (c) => {
 
   const trades = await c.env.DB.prepare(`
     SELECT * FROM trades WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
-  `).bind(userId, limit, offset).all<any>();
+  `).bind(userId, limit, offset).all();
 
   return c.json({
     success: true,
@@ -222,7 +284,7 @@ trade.get('/history', authMiddleware, async (c) => {
       status: t.status,
       timestamp: t.created_at,
       priceImpactPct: t.price_impact_pct,
-      platformFee: t.platform_fee,
+      platformFee: t.platform_fee
     }))
   });
 });
