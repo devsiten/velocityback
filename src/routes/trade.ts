@@ -22,28 +22,7 @@ trade.get('/tokens/search', quoteLimiter(), async (c) => {
   return c.json({ success: true, data: tokens });
 });
 
-// Get trending tokens - FIXED
-trade.get('/trending', quoteLimiter(), async (c) => {
-  try {
-    const jupiter = new JupiterService(c.env);
-    const trendingTokens = await jupiter.getTrendingTokens(20);
 
-    const formatted = trendingTokens.map((token, index) => ({
-      rank: index + 1,
-      address: token.address,
-      symbol: token.symbol,
-      name: token.name,
-      logoURI: token.logoURI || '',
-      decimals: token.decimals,
-      dailyVolume: token.dailyVolume || 0
-    }));
-
-    return c.json({ success: true, data: formatted });
-  } catch (error) {
-    console.error('Trending error:', error);
-    return c.json({ success: false, error: 'Trending fetch failed', code: 'TRENDING_ERROR' }, 500);
-  }
-});
 
 // Get token info by mint
 trade.get('/tokens/:mint', quoteLimiter(), async (c) => {
