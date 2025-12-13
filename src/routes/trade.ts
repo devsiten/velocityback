@@ -134,6 +134,15 @@ trade.post('/quote', quoteLimiter(), async (c) => {
     return c.json({ success: false, error: 'Validation failed', code: 'VALIDATION_ERROR', details: errors }, 400);
   }
 
+  // Check if Jupiter API key is configured
+  if (!c.env.JUPITER_API_KEY) {
+    return c.json({ 
+      success: false, 
+      error: 'Jupiter API not configured. Please set JUPITER_API_KEY in environment secrets.', 
+      code: 'API_CONFIG_ERROR' 
+    }, 503);
+  }
+
   const jupiter = new JupiterService(c.env);
 
   try {

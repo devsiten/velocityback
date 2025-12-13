@@ -1,6 +1,7 @@
 import { Env, CachedPrice } from '../types/env';
 import { QuoteRequest, QuoteResponse, SwapRequest, SwapResponse, SOL_MINT } from '../types/shared';
 
+// Jupiter Quote API v6 with authentication (December 2025)
 const JUPITER_API_BASE = 'https://quote-api.jup.ag/v6';
 const PRICE_CACHE_TTL = 2000;
 
@@ -22,7 +23,6 @@ export class JupiterService {
       amount: request.amount,
       slippageBps: request.slippageBps.toString(),
       platformFeeBps: totalFeeBps.toString(),
-      feeAccount: this.env.FEE_WALLET_ADDRESS,
     });
 
     const response = await fetch(`${JUPITER_API_BASE}/quote?${params}`, {
@@ -31,6 +31,11 @@ export class JupiterService {
 
     if (!response.ok) {
       const error = await response.text();
+
+      if (response.status === 401) {
+        throw new Error('Jupiter API authentication failed. Please verify JUPITER_API_KEY is set in environment secrets.');
+      }
+
       throw new Error(`Quote failed: ${error}`);
     }
 
