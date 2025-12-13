@@ -1,14 +1,13 @@
 import { Hono } from 'hono';
+import { Env } from '../types/env';
 import { JupiterService } from '../services/jupiter';
 import { PointsService } from '../services/points';
 import { authMiddleware } from '../middleware/auth';
-import { strictRateLimiter, quoteLimiter } from '../middleware/rateLimit';
-import { validateMint, validateQuoteRequest, sanitizeString } from '../utils/validation';
-import { Env } from '../types/env';
+import { quoteLimiter, strictRateLimiter } from '../middleware/rateLimit';
+import { validateQuoteRequest, validateMint, sanitizeString } from '../utils/validation';
 
 const trade = new Hono<{ Bindings: Env; Variables: { userId: string; publicKey: string } }>();
 
-// Search tokens
 trade.get('/tokens/search', quoteLimiter(), async (c) => {
   const query = c.req.query('q');
 
@@ -22,9 +21,61 @@ trade.get('/tokens/search', quoteLimiter(), async (c) => {
   return c.json({ success: true, data: tokens });
 });
 
+// GET /trending - Fetch trending tokens from Jupiter
+trade.get('/trending', quoteLimiter(), async (c) => {
+  try {
+    const response = await fetch('https://api.jup.ag/tokens/v1/trending');
 
+    if (!response.ok) {
+      // Fallback to strict token list if trending fails
+      const fallbackRes = await fetch('https://token.jup.ag/strict');
+      const allTokens = await fallbackRes.json();
 
-// Get token info by mint
+      const popularMints = [
+        'So11111111111111111111111111111111111111112',
+        'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+        'JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN',
+        'DezXAZ8z7PnrnRJjz3wXBoRgixCa6xjnB7YaB1pPB263',
+        'mSoLzYCxHdYgdzU16g5QSh3i5K3z3KZK7ytfqcJm7So',
+        'J1toso1uCk3RLmjorhTtrVwY9HJ7X8V9yYac6Y7kGCPn',
+        'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+        'RLBxxFkseAZ4RgJH3Sqn8jXxhmGoz9jWxDNJMh8pL7a',
+      ];
+
+      const formatted = popularMints.map((mint, index) => {
+        const token = allTokens.find((t: any) => t.address === mint);
+        return {
+          rank: index + 1,
+          address: mint,
+          symbol: token?.symbol || 'UNKNOWN',
+          name: token?.name || 'Unknown',
+          logoURI: token?.logoURI || '',
+          decimals: token?.decimals || 9,
+          dailyVolume: 0,
+        };
+      });
+
+      return c.json({ success: true, data: formatted });
+    }
+
+    const tokens = await response.json();
+
+    const formatted = tokens.slice(0, 10).map((token: any, index: number) => ({
+      rank: index + 1,
+      address: token.address,
+      symbol: token.symbol,
+      name: token.name,
+      logoURI: token.logoURI,
+      decimals: token.decimals || 9,
+      dailyVolume: token.dailyVolume || 0,
+    }));
+
+    return c.json({ success: true, data: formatted });
+  } catch (error) {
+    return c.json({ success: false, error: 'Trending fetch failed', code: 'TRENDING_ERROR' }, 500);
+  }
+});
+
 trade.get('/tokens/:mint', quoteLimiter(), async (c) => {
   const mint = c.req.param('mint');
 
@@ -42,7 +93,6 @@ trade.get('/tokens/:mint', quoteLimiter(), async (c) => {
   return c.json({ success: true, data: token });
 });
 
-// Get price for a token (in SOL)
 trade.get('/price/:mint', quoteLimiter(), async (c) => {
   const mint = c.req.param('mint');
 
@@ -51,28 +101,13 @@ trade.get('/price/:mint', quoteLimiter(), async (c) => {
   }
 
   const jupiter = new JupiterService(c.env);
+  const price = await jupiter.getPrice(mint);
 
-  try {
-    const priceInSol = await jupiter.getPrice(mint);
-    const usdPrices = await jupiter.getUsdPrices([mint]);
-
-    return c.json({
-      success: true,
-      data: {
-        mint,
-        price: priceInSol,
-        priceUsd: usdPrices[mint] || null,
-        timestamp: Date.now()
-      }
-    });
-  } catch (error) {
-    return c.json({ success: false, error: 'Price fetch failed', code: 'PRICE_ERROR' }, 500);
-  }
+  return c.json({ success: true, data: { mint, price, timestamp: Date.now() } });
 });
 
-// Get multiple prices - FIXED with USD prices
 trade.post('/prices', quoteLimiter(), async (c) => {
-  const body = await c.req.json();
+  const body = await c.req.json<{ mints: string[] }>();
 
   if (!Array.isArray(body.mints) || body.mints.length === 0 || body.mints.length > 20) {
     return c.json({ success: false, error: 'Provide 1-20 mint addresses', code: 'INVALID_MINTS' }, 400);
@@ -85,30 +120,11 @@ trade.post('/prices', quoteLimiter(), async (c) => {
   }
 
   const jupiter = new JupiterService(c.env);
+  const prices = await jupiter.getPrices(body.mints);
 
-  try {
-    // Get USD prices
-    const pricesUsd = await jupiter.getUsdPrices(body.mints);
-
-    // Return USD prices as simple numbers (frontend expects this format)
-    const prices: Record<string, number> = {};
-    for (const mint of body.mints) {
-      prices[mint] = pricesUsd[mint] || 0;
-    }
-
-    return c.json({
-      success: true,
-      data: {
-        prices: prices,
-        timestamp: Date.now()
-      }
-    });
-  } catch (error) {
-    return c.json({ success: false, error: 'Prices fetch failed', code: 'PRICE_ERROR' }, 500);
-  }
+  return c.json({ success: true, data: { prices, timestamp: Date.now() } });
 });
 
-// Get quote - FIXED with USD amounts
 trade.post('/quote', quoteLimiter(), async (c) => {
   const body = await c.req.json();
   const maxSlippage = parseInt(c.env.MAX_SLIPPAGE_BPS) || 1000;
@@ -122,23 +138,13 @@ trade.post('/quote', quoteLimiter(), async (c) => {
 
   try {
     const quote = await jupiter.getQuote(body);
-
-    return c.json({
-      success: true,
-      data: {
-        ...quote,
-        // Ensure USD amounts are included
-        inAmountUsd: quote.inAmountUsd || null,
-        outAmountUsd: quote.outAmountUsd || null
-      }
-    });
+    return c.json({ success: true, data: quote });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Quote failed';
     return c.json({ success: false, error: message, code: 'QUOTE_ERROR' }, 500);
   }
 });
 
-// Build swap transaction
 trade.post('/swap', authMiddleware, strictRateLimiter(), async (c) => {
   const body = await c.req.json();
   const userId = c.get('userId');
@@ -169,15 +175,15 @@ trade.post('/swap', authMiddleware, strictRateLimiter(), async (c) => {
       body.outputSymbol || 'Unknown',
       body.quoteResponse.inAmount,
       body.quoteResponse.outAmount,
-      body.quoteResponse.priceImpactPct || '0',
-      body.quoteResponse.platformFee?.amount || '0'
+      body.quoteResponse.priceImpactPct,
+      body.quoteResponse.platformFee
     ).run();
 
     return c.json({
       success: true,
       data: {
         ...swap,
-        tradeId
+        tradeId,
       }
     });
   } catch (error) {
@@ -186,20 +192,19 @@ trade.post('/swap', authMiddleware, strictRateLimiter(), async (c) => {
   }
 });
 
-// Confirm trade
 trade.post('/confirm', authMiddleware, strictRateLimiter(), async (c) => {
-  const body = await c.req.json();
+  const body = await c.req.json<{ tradeId: string; txSignature: string }>();
   const userId = c.get('userId');
 
   if (!body.tradeId || !body.txSignature) {
     return c.json({ success: false, error: 'Missing trade ID or signature', code: 'INVALID_REQUEST' }, 400);
   }
 
-  const tradeRecord = await c.env.DB.prepare(`
+  const trade = await c.env.DB.prepare(`
     SELECT * FROM trades WHERE id = ? AND user_id = ? AND status = 'pending'
-  `).bind(body.tradeId, userId).first();
+  `).bind(body.tradeId, userId).first<any>();
 
-  if (!tradeRecord) {
+  if (!trade) {
     return c.json({ success: false, error: 'Trade not found', code: 'NOT_FOUND' }, 404);
   }
 
@@ -207,20 +212,7 @@ trade.post('/confirm', authMiddleware, strictRateLimiter(), async (c) => {
     UPDATE trades SET status = 'confirmed', tx_signature = ? WHERE id = ?
   `).bind(body.txSignature, body.tradeId).run();
 
-  // Calculate volume in USD (approximate)
-  const jupiter = new JupiterService(c.env);
-  let volumeUsd = 0;
-
-  try {
-    const prices = await jupiter.getUsdPrices([tradeRecord.input_mint as string]);
-    const tokenInfo = await jupiter.getTokenInfo(tradeRecord.input_mint as string);
-    const decimals = tokenInfo?.decimals || 9;
-    volumeUsd = (parseFloat(tradeRecord.in_amount as string) / Math.pow(10, decimals)) * (prices[tradeRecord.input_mint as string] || 0);
-  } catch (e) {
-    // Fallback estimation
-    volumeUsd = parseFloat(tradeRecord.in_amount as string) / 1e9 * 150;
-  }
-
+  const volumeUsd = parseFloat(trade.in_amount) / 1e9 * 150;
   const points = new PointsService(c.env);
   const earnedPoints = await points.awardTradePoints(userId, volumeUsd);
 
@@ -229,12 +221,10 @@ trade.post('/confirm', authMiddleware, strictRateLimiter(), async (c) => {
     data: {
       confirmed: true,
       pointsEarned: earnedPoints,
-      volumeUsd
     }
   });
 });
 
-// Get trade history
 trade.get('/history', authMiddleware, async (c) => {
   const userId = c.get('userId');
   const limit = Math.min(parseInt(c.req.query('limit') || '20'), 100);
@@ -242,7 +232,7 @@ trade.get('/history', authMiddleware, async (c) => {
 
   const trades = await c.env.DB.prepare(`
     SELECT * FROM trades WHERE user_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?
-  `).bind(userId, limit, offset).all();
+  `).bind(userId, limit, offset).all<any>();
 
   return c.json({
     success: true,
@@ -258,7 +248,7 @@ trade.get('/history', authMiddleware, async (c) => {
       status: t.status,
       timestamp: t.created_at,
       priceImpactPct: t.price_impact_pct,
-      platformFee: t.platform_fee
+      platformFee: t.platform_fee,
     }))
   });
 });
