@@ -182,25 +182,31 @@ export class JupiterService {
 
     if (mints.length === 0) return prices;
 
-    const params = new URLSearchParams({
-      ids: mints.join(','),
-      showExtraInfo: 'false'
-    });
+    try {
+      const params = new URLSearchParams({
+        ids: mints.join(','),
+        showExtraInfo: 'false'
+      });
 
-    const response = await fetch(`${JUPITER_PRICE_API}?${params}`, {
-      headers: this.getHeaders()
-    });
+      const response = await fetch(`${JUPITER_PRICE_API}?${params}`, {
+        headers: this.getHeaders()
+      });
 
-    if (!response.ok) {
-      throw new Error('Price fetch failed');
-    }
-
-    const data = await response.json() as any;
-
-    for (const mint of mints) {
-      if (data.data?.[mint]?.price) {
-        prices[mint] = parseFloat(data.data[mint].price);
+      if (!response.ok) {
+        console.error('Price API error:', response.status);
+        return prices; // Return empty prices instead of throwing
       }
+
+      const data = await response.json() as any;
+
+      for (const mint of mints) {
+        if (data.data?.[mint]?.price) {
+          prices[mint] = parseFloat(data.data[mint].price);
+        }
+      }
+    } catch (e) {
+      console.error('Price fetch error:', e);
+      // Return empty prices on error
     }
 
     return prices;
